@@ -35,9 +35,9 @@ class Crawler(object):
 		#数据库文件名
 		self.dbfile = dbfile
 		#创建存储数据库对象
-		self.dataBase = SaveDataBase(self.dbfile) 
+		self.dataBase = SaveDataBase(self.dbfile, url) 
 		#指点线程数目的线程池
-		self.threadPool = ThreadPool(self.threadNum)
+		# self.threadPool = ThreadPool(self.threadNum)
 		#初始化url队列
 		self.urlQueue.put(url)
 		#关键字,使用console的默认编码来解码
@@ -57,23 +57,30 @@ class Crawler(object):
 			html = urllib2.urlopen(req).read()
 		except UnicodeError,e:
 			self.urlQueue.put(url.encode('raw_unicode_escape'))
-			logger.warninng(e)
+			logging.warning('UnicodeError: '+url)
 			return None
 		except Exception,e:
-			logger.warninng(e)
+			logging.error('OpenError: '+url)
 			return None
-		soup = BeautifulSoup(html, "xml")	
-		allUrl = soup.find('ol', class_ = 'references').find_all('a', href=re.compile('^http|^/'), rel = 'nofollow', class_ = 'external text')
-		if url.endswith('/'):
-			url = url[:-1]
-		for i in allUrl:
-			if i['href'].startswith('/'):
-				i['href'] = url + i['href']
-			#如果该链接不在已经读取的URL列表中，把它加入该列表和队列
-			if i['href'] not in self.readUrls:
-				self.readUrls.append(i['href'])
-				self.links.append(i['href'])
-				# print i['href'] #显示获取的链接
+		print '>>crawling', url
+
+		if self.currentDepth < self.depth:
+			soup = BeautifulSoup(html)	
+			try:
+				allUrl = soup.find('ol', class_ = 'references').find_all('a', href=re.compile('^http|^/'), rel = 'nofollow', class_ = 'external text')
+				if url.endswith('/'):
+					url = url[:-1]
+				for i in allUrl:
+					if i['href'].startswith('/'):
+						i['href'] = url + i['href']
+					#如果该链接不在已经读取的URL列表中，把它加入该列表和队列
+					if i['href'] not in self.readUrls:
+						self.readUrls.append(i['href'])
+						self.links.append(i['href'])
+						# print i['href'] #显示获取的链接
+			except:
+				logging.warning('No references found: '+url)
+
 		if html:
 			self.htmlfilter(url,html)
 				
@@ -88,28 +95,40 @@ class Crawler(object):
 			# 		self.htmlQueue.put((url,key,html))
 			# else:
 			# 	self.htmlQueue.put((url,'',html))
-			soup = BeautifulSoup(html, "xml")	
-			contents = soup.find(attrs = {'id': re.compile('^article|^content')}).find_all("p")
+			soup = BeautifulSoup(html)	
+			[s.extract() for s in soup('script')]
+			# contents = soup.find(attrs = {'id': re.compile('^article|^content')}).find_all("p")
+			# f = open('output', 'w')
+			# print >> f, soup
+			# f.close()
+			contents = soup.find_all('p')
 			output = ''
 			for content in contents:
 				output = output + content.get_text()
 			if output:
-				self.htmlQueue.put((url, '', output))
+				self.htmlQueue.put((url, output))
 		except Exception,e:
-			logger.warninng
+			logging.warning('HtmlParseError: '+url)
 
 	def start(self):
 		self.state = True
 		print '\n[-] Start Crawling.........\n'
-		self.threadPool.startThreads()
+		# self.threadPool.startThreads()
 		#判断当前深度，确定是否继续
 		while self.currentDepth <= self.depth:
 			while not self.urlQueue.empty():
 				url = self.urlQueue.get()
-				self.threadPool.addJob(self.work,url)	#向线程池中添加工作任务
+				# self.threadPool.addJob(self.work,url)	#向线程池中添加工作任务
 				self.readUrls.append(url)				#添加已访问的url
-				self.threadPool.workJoin()
-				self.dataBase.save(self.htmlQueue)	#保存到数据库
+				# 检查是否在数据库中已经存在
+				if self.dataBase.check(url):
+					print '--data exists in DB: ' + url
+					if self.currentDepth < self.depth:
+						self.work(url)
+				else:
+					self.work(url)
+					# self.threadPool.workJoin()
+					self.dataBase.save(self.htmlQueue)		#保存到数据库
 			#把获取当前深度未访问的链接放入url队列	
 			for i in self.links:
 				self.urlQueue.put(i)
@@ -120,25 +139,27 @@ class Crawler(object):
 
 	def stop(self):
 		self.state = False
-		self.threadPool.stopThreads()
+		# self.threadPool.stopThreads()
 		self.dataBase.stop()
 
 #存储数据库类
 class SaveDataBase(object):
-	def __init__(self,dbfile):
+	def __init__(self, dbfile, url):
 		#移除现有的同名数据库
-		if os.path.isfile(dbfile):
-			os.remove(dbfile)
+		# if os.path.isfile(dbfile):
+		# 	os.remove(dbfile)
+		words = url.split('/')
+		self.dbname = words[len(words) - 1]
+		print 'dbname: ', self.dbname
 		#数据库创建链接
 		self.conn = sqlite3.connect(dbfile)
 		#设置支持中文存储
 		self.conn.text_factory = str
 		self.cmd = self.conn.cursor()
 		self.cmd.execute('''
-			create table if not exists data(
+			create table if not exists ''' + self.dbname + '''(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				url text,
-				key text,
 				html text
 				)
 		''')
@@ -147,13 +168,19 @@ class SaveDataBase(object):
 	#保存页面代码
 	def save(self,htmlQueue):
 		while not htmlQueue.empty():
-			(url,key,html) = htmlQueue.get()
+			(url, html) = htmlQueue.get()
 			try:
-				self.cmd.execute("insert into data (url,key,html) values (?,?,?)",(url,key,html))
+				self.cmd.execute("insert into " + self.dbname + " (url, html) values (?, ?)",(url, html))
 				self.conn.commit()
 			except Exception,e:
-				logger.warninng(e)
-				
+				logging.warning('SaveDBError: '+e)
+
+	#检查链接的结果是否已经存在于数据库
+	def check(self, url):
+		self.cmd.execute("select count(*) from " + self.dbname + " where url = ?", (url,))
+		res = self.cmd.fetchone()[0] > 0
+		return res
+
 	#关闭数据库连接
 	def stop(self):
 		self.conn.close()
@@ -169,7 +196,7 @@ class printInfo(Thread):
 		while True:
 			if self.Crawler.state == True:
 				time.sleep(10)
-				print '[+] CurrentDepth : %d, Totally visited %d Links.\n'%(self.Crawler.currentDepth,len(self.Crawler.readUrls))
+				# print '[+] CurrentDepth : %d, Totally visited %d Links.\n'%(self.Crawler.currentDepth,len(self.Crawler.readUrls))
 				logger.info('CurrentDepth : %d, Totally visited %d Links.\n'%(self.Crawler.currentDepth,len(self.Crawler.readUrls)))
 	def printEnd(self):
 		self.endTime = datetime.now()

@@ -20,12 +20,14 @@ class Worker(Thread):
 			try:
 				func,args,kargs = self.threadPool.workQueue.get()
 			except Empty:
+				self.threadPool.workDone()
 				continue
 			try:
 				res = func(*args,**kargs)
 				self.threadPool.resultQueue.put(res)
 				self.threadPool.workDone()
 			except:
+				self.threadPool.workDone()
 				break
 	#结束线程
 	def stop(self):
@@ -54,7 +56,10 @@ class ThreadPool(object):
 
 	#添加工作任务
 	def addJob(self,func,*args,**kargs):
-		self.workQueue.put((func,args,kargs))
+		try:
+			self.workQueue.put((func,args,kargs))
+		except Full:
+			print 'Queue is full.'
 
 	#工作任务完成
 	def workDone(self,*args):
