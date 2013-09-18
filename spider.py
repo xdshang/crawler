@@ -21,7 +21,7 @@ logger = logging.getLogger()
 
 #页面爬行类
 class Crawler(object):
-	def __init__(self,url,depth,threadNum,dbfile,key):
+	def __init__(self,url,depth,threadNum,dbfile,key, test):
 		#要获取url的队列
 		self.urlQueue = Queue()
 		#读取的html队列
@@ -35,7 +35,7 @@ class Crawler(object):
 		#数据库文件名
 		self.dbfile = dbfile
 		#创建存储数据库对象
-		self.dataBase = SaveDataBase(self.dbfile, url) 
+		self.dataBase = SaveDataBase(self.dbfile, test, url) 
 		#指点线程数目的线程池
 		# self.threadPool = ThreadPool(self.threadNum)
 		#初始化url队列
@@ -48,13 +48,13 @@ class Crawler(object):
 		self.currentDepth = 1
 		#当前程序运行状态
 		self.state = False
-		
+
 	#获取当前页面的URL
 	def work(self,url):
 		try:
 			headers = {'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6'}
 			req = urllib2.Request(url = url, headers = headers)
-			html = urllib2.urlopen(req).read()
+			html = urllib2.urlopen(url = req, data = None, timeout = 5).read()
 		except UnicodeError,e:
 			self.urlQueue.put(url.encode('raw_unicode_escape'))
 			logging.warning('UnicodeError: '+url)
@@ -86,25 +86,21 @@ class Crawler(object):
 				
 	#匹配关键字
 	def htmlfilter(self,url,html):
+		map = dict()
 		try:
-			# if self.key:
-			# 	soup = BeautifulSoup(html)
-			# 	re_string = key.split()
-			# 	#查找关键字
-			# 	if soup.findAll('meta',content = re.compile(re_string)):
-			# 		self.htmlQueue.put((url,key,html))
-			# else:
-			# 	self.htmlQueue.put((url,'',html))
 			soup = BeautifulSoup(html)	
-			[s.extract() for s in soup('script')]
-			# contents = soup.find(attrs = {'id': re.compile('^article|^content')}).find_all("p")
-			# f = open('output', 'w')
-			# print >> f, soup
-			# f.close()
+			[s.extract() for s in soup('script')] 
 			contents = soup.find_all('p')
+			for content in contents:
+				if content.parent not in map:
+					map[content.parent] = 1
+				else:
+					map[content.parent] += 1
+			main_body = max(map.iterkeys(), key = lambda k : map[k])
 			output = ''
 			for content in contents:
-				output = output + content.get_text()
+				if content.parent == main_body:
+					output = output + content.get_text()
 			if output:
 				self.htmlQueue.put((url, output))
 		except Exception,e:
@@ -121,6 +117,7 @@ class Crawler(object):
 				# self.threadPool.addJob(self.work,url)	#向线程池中添加工作任务
 				self.readUrls.append(url)				#添加已访问的url
 				# 检查是否在数据库中已经存在
+				print 'dealing with ' + url
 				if self.dataBase.check(url):
 					print '--data exists in DB: ' + url
 					if self.currentDepth < self.depth:
@@ -144,18 +141,24 @@ class Crawler(object):
 
 #存储数据库类
 class SaveDataBase(object):
-	def __init__(self, dbfile, url):
+	def __init__(self, dbfile, test, url):
 		#移除现有的同名数据库
 		# if os.path.isfile(dbfile):
 		# 	os.remove(dbfile)
-		words = url.split('/')
-		self.dbname = words[len(words) - 1]
+		if test:
+			self.dbname = 'test'
+		else:
+			words = url.split('/')
+			self.dbname = words[len(words) - 1]
 		print 'dbname: ', self.dbname
 		#数据库创建链接
 		self.conn = sqlite3.connect(dbfile)
 		#设置支持中文存储
 		self.conn.text_factory = str
 		self.cmd = self.conn.cursor()
+		if test:
+			self.cmd.execute('drop table if exists test')
+			self.conn.commit()
 		self.cmd.execute('''
 			create table if not exists ''' + self.dbname + '''(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,35 +226,35 @@ def logConfig(logFile,logLevel):
 	formatter = logging.Formatter('%(actime)s %(levelname)s %(message)s')
 
 #程序自检模块
-def testself(dbfile):
+# def testself(dbfile):
 
-	print 'Starting TestSelf ......\n'
-	#测试网络，以获取百度源码为目标
-	url = "http://www.baidu.com"
-	netState = True		#网络状态
-	pageSource = urllib2.urlopen(url).read()
-	if pageSource == None:	#获取不到源码，网络状态设为False
-		print 'Please check your network.'
-		netState = False
-	#测试数据库
-	try:
-		conn = sqlite3.connect(dbfile)
-		cur = conn.cursor()
-		cur.execute('''
-			create table if not exists data (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			url text,
-			key text,
-			html text
-			)
-		''')
-	except Exception,e:
-		conn = None
-	# 判断数据库和网络状态
-	if conn == None:
-		print 'DataBase Error!'
-	elif netState:
-		print 'The Crawler runs normally!'
+# 	print 'Starting TestSelf ......\n'
+# 	#测试网络，以获取百度源码为目标
+# 	url = "http://www.baidu.com"
+# 	netState = True		#网络状态
+# 	pageSource = urllib2.urlopen(url).read()
+# 	if pageSource == None:	#获取不到源码，网络状态设为False
+# 		print 'Please check your network.'
+# 		netState = False
+# 	#测试数据库
+# 	try:
+# 		conn = sqlite3.connect(dbfile)
+# 		cur = conn.cursor()
+# 		cur.execute('''
+# 			create table if not exists data (
+# 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+# 			url text,
+# 			key text,
+# 			html text
+# 			)
+# 		''')
+# 	except Exception,e:
+# 		conn = None
+# 	# 判断数据库和网络状态
+# 	if conn == None:
+# 		print 'DataBase Error!'
+# 	elif netState:
+# 		print 'The Crawler runs normally!'
 
 if __name__ == '__main__':
 	helpInfo = '%prog -u url -d depth'
@@ -261,21 +264,22 @@ if __name__ == '__main__':
 	optParser.add_option("-d",dest="depth",type="int",help="Specify the crawling depth.")
 	optParser.add_option("-f",dest="logFile",default="spider.log",type="string",help="The log file path, Default: spider.log.")
 	optParser.add_option("-l",dest="logLevel",default="3",type="int",help="The level(1-5) of logging details. Larger number record more details. Default: 3")
+	optParser.add_option("--test", action = "store_true", dest="test", help="test on one url")
 	optParser.add_option("--thread",dest="thread",default="10",type="int",help="The amount of threads. Default: 10.")
 	optParser.add_option("--dbfile",dest="dbfile",default="data.sql",type="string",help="The SQLite file path. Default:data.sql")
 	optParser.add_option("--key",metavar="key",default="",type="string",help="The keyword for crawling. Default: None.")
-	optParser.add_option("--testself",action="store_false",dest="testself",help="TestSelf")
+	# optParser.add_option("--testself",action="store_false",dest="testself",help="TestSelf")
 	(options,args) = optParser.parse_args()
 	#当参数中有testself时，执行自检
-	if options.testself:
-		testself(options.dbfile)
+	# if options.testself:
+	# 	testself(options.dbfile)
 		#exit()
 	#当不输入参数时，提示帮助信息
 	if len(sys.argv) < 5:
 		print optParser.print_help()
 	else:
 		logConfig(options.logFile,options.logLevel)	#日志配置
-		spider = Crawler(options.url,options.depth,options.thread,options.dbfile,options.key)	
+		spider = Crawler(options.url,options.depth,options.thread,options.dbfile,options.key, options.test)	
 		info = printInfo(spider)
 		spider.start()
 		info.printEnd()
