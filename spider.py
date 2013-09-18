@@ -1,5 +1,6 @@
 #------coding:utf-8------
 
+from __future__ import division
 import re
 import os
 import sys
@@ -7,6 +8,7 @@ import time
 import urllib2
 import sqlite3
 import logging
+import string
 from urlparse import urljoin
 from Queue import Queue
 from bs4 import BeautifulSoup
@@ -86,21 +88,15 @@ class Crawler(object):
 	#匹配关键字
 	def htmlfilter(self,url,html):
 		try:
-			map = dict()
 			soup = BeautifulSoup(html)	
 			[s.extract() for s in soup('script')] 
-			contents = soup.find_all('p')
-			for content in contents:
-				if content.parent not in map:
-					map[content.parent] = 1
-				else:
-					map[content.parent] += 1
-			main_body = max(map.iterkeys(), key = lambda k : map[k]) #找到页面的主要内容块
+			main_body = self.findmainbody(soup)
 			#提取主块中的文字内容
-			words = ''
-			for content in contents:
-				if content.parent == main_body:
-					words = words + content.get_text()
+			if main_body.find_all('p'):
+				words = string.join([ele.get_text() for ele in main_body.find_all('p')])
+			else:
+				words = string.join(main_body.find_all(text = True))
+			words = words.replace('\n','').replace('\r','')
 			#提取主块中图片的链接
 			picUrls = ''
 			for tag in main_body.find_all('img'):
@@ -109,7 +105,18 @@ class Crawler(object):
 					picUrls = picUrls + ',' + tag.attrs['src']
 			self.htmlQueue.put((url, words, picUrls[1:]))
 		except Exception,e:
+			print e
 			logging.error('HtmlParseError: '+url)
+
+	def findmainbody(self, soup):
+		totLen = len(string.join(soup.find_all(text = True)))
+		for child in soup.contents:
+			if hasattr(child, 'find_all'):
+				length = len(string.join(child.find_all(text = True)))
+				# print (length / totLen)
+				if length / totLen > 0.6:
+					return self.findmainbody(child)
+		return soup
 
 	def start(self):
 		self.state = True
