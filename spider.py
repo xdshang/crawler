@@ -95,16 +95,17 @@ class Crawler(object):
 					map[content.parent] = 1
 				else:
 					map[content.parent] += 1
-			main_body = max(map.iterkeys(), key = lambda k : map[k])
+			main_body = max(map.iterkeys(), key = lambda k : map[k]) #找到页面的主要内容块
+			#提取主块中的文字内容		
 			words = ''
 			for content in contents:
 				if content.parent == main_body:
 					words = words + content.get_text()
+			#提取主块中图片的链接
 			picUrls = ''
 			for tag in main_body.find_all('img'):
-				for (name, value) in tag.attrs.iteritems():
-					if name == 'src':
-						picUrls = picUrls + ',' + value
+				if int(tag.attrs['width']) > 150 and int(tag.attrs['height']) > 100: #过滤掉过小的图片，这些图片很可能只是些图标
+					picUrls = picUrls + ',' + tag.attrs['src']
 			self.htmlQueue.put((url, words, picUrls[1:]))
 		except Exception,e:
 			logging.error('HtmlParseError: '+url)
