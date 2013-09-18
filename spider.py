@@ -81,13 +81,12 @@ class Crawler(object):
 			except:
 				logging.warning('No references found: '+url)
 
-		if html:
-			self.htmlfilter(url,html)
+		self.htmlfilter(url,html)
 				
 	#匹配关键字
 	def htmlfilter(self,url,html):
-		map = dict()
 		try:
+			map = dict()
 			soup = BeautifulSoup(html)	
 			[s.extract() for s in soup('script')] 
 			contents = soup.find_all('p')
@@ -97,14 +96,18 @@ class Crawler(object):
 				else:
 					map[content.parent] += 1
 			main_body = max(map.iterkeys(), key = lambda k : map[k])
-			output = ''
+			words = ''
 			for content in contents:
 				if content.parent == main_body:
-					output = output + content.get_text()
-			if output:
-				self.htmlQueue.put((url, output))
+					words = words + content.get_text()
+			picUrls = ''
+			for tag in main_body.find_all('img'):
+				for (name, value) in tag.attrs.iteritems():
+					if name == 'src':
+						picUrls = picUrls + ',' + value
+			self.htmlQueue.put((url, words, picUrls[1:]))
 		except Exception,e:
-			logging.warning('HtmlParseError: '+url)
+			logging.error('HtmlParseError: '+url)
 
 	def start(self):
 		self.state = True
@@ -148,8 +151,7 @@ class SaveDataBase(object):
 		if test:
 			self.dbname = 'test'
 		else:
-			words = url.split('/')
-			self.dbname = words[len(words) - 1]
+			self.dbname = url.split('/')[-1]
 		print 'dbname: ', self.dbname
 		#数据库创建链接
 		self.conn = sqlite3.connect(dbfile)
@@ -163,7 +165,8 @@ class SaveDataBase(object):
 			create table if not exists ''' + self.dbname + '''(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				url text,
-				html text
+				html text,
+				picUrl text
 				)
 		''')
 		self.conn.commit()
@@ -171,9 +174,10 @@ class SaveDataBase(object):
 	#保存页面代码
 	def save(self,htmlQueue):
 		while not htmlQueue.empty():
-			(url, html) = htmlQueue.get()
+			(url, html, picUrls) = htmlQueue.get()
+			
 			try:
-				self.cmd.execute("insert into " + self.dbname + " (url, html) values (?, ?)",(url, html))
+				self.cmd.execute("insert into " + self.dbname + " (url, html, picUrl) values (?, ?, ?)",(url, html, picUrls))
 				self.conn.commit()
 			except Exception,e:
 				logging.warning('SaveDBError: '+e)
