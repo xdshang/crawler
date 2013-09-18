@@ -96,7 +96,7 @@ class Crawler(object):
 				else:
 					map[content.parent] += 1
 			main_body = max(map.iterkeys(), key = lambda k : map[k]) #找到页面的主要内容块
-			#提取主块中的文字内容		
+			#提取主块中的文字内容
 			words = ''
 			for content in contents:
 				if content.parent == main_body:
@@ -104,7 +104,8 @@ class Crawler(object):
 			#提取主块中图片的链接
 			picUrls = ''
 			for tag in main_body.find_all('img'):
-				if int(tag.attrs['width']) > 150 and int(tag.attrs['height']) > 100: #过滤掉过小的图片，这些图片很可能只是些图标
+				if not ('width' in tag.attrs and 'height' in tag.attrs and int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 150 and int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 100): 
+					#过滤掉过小的图片，这些图片很可能只是些图标
 					picUrls = picUrls + ',' + tag.attrs['src']
 			self.htmlQueue.put((url, words, picUrls[1:]))
 		except Exception,e:
