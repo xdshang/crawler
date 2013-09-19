@@ -23,7 +23,7 @@ logger = logging.getLogger()
 
 #页面爬行类
 class Crawler(object):
-	def __init__(self,url,depth,threadNum,dbfile,key, test):
+	def __init__(self,url,depth,threadNum,dbname,key):
 		#要获取url的队列
 		self.urlQueue = Queue()
 		#读取的html队列
@@ -35,9 +35,9 @@ class Crawler(object):
 		#线程数
 		self.threadNum = threadNum
 		#数据库文件名
-		self.dbfile = dbfile
+		self.dbname = dbname
 		#创建存储数据库对象
-		self.dataBase = SaveDataBase(self.dbfile, test, url) 
+		self.dataBase = SaveDataBase(dbname, url) 
 		#指点线程数目的线程池
 		# self.threadPool = ThreadPool(self.threadNum)
 		#初始化url队列
@@ -67,9 +67,14 @@ class Crawler(object):
 		print '>>crawling', url
 
 		if self.currentDepth < self.depth:
-			soup = BeautifulSoup(html)	
 			try:
-				allUrl = soup.find('ol', class_ = 'references').find_all('a', href=re.compile('^http|^/'), rel = 'nofollow', class_ = 'external text')
+				soup = BeautifulSoup(html)
+				ref_blocks = soup.find_all('ol', attrs = {'class': 'references'})
+				allUrl = []
+				for ref_block in ref_blocks:
+					urls = ref_block.find_all('a', attrs = {'href' : re.compile('^http|^/'), 'rel' : 'nofollow', 'class' : 'external text'})
+					if len(urls) > len(allUrl):
+						allUrl = urls
 				if url.endswith('/'):
 					url = url[:-1]
 				for i in allUrl:
@@ -80,7 +85,8 @@ class Crawler(object):
 						self.readUrls.append(i['href'])
 						self.links.append(i['href'])
 						# print i['href'] #显示获取的链接
-			except:
+			except Exception,e:
+				print e
 				logging.warning('No references found: '+url)
 
 		self.htmlfilter(url,html)
@@ -100,23 +106,31 @@ class Crawler(object):
 			#提取主块中图片的链接
 			picUrls = ''
 			for tag in main_body.find_all('img'):
-				if not ('width' in tag.attrs and 'height' in tag.attrs and int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 150 and int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 100): 
-					#过滤掉过小的图片，这些图片很可能只是些图标
-					picUrls = picUrls + ',' + tag.attrs['src']
+				if 'src' in tag.attrs:
+					if 'width' in tag.attrs and 'height' in tag.attrs: 
+						if int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 150 and int(re.findall(r'[\d|.]+',tag.attrs['width'])[0]) < 100: 
+							pass #过滤掉过小的图片，这些图片很可能只是些图标
+						else:
+							picUrls = picUrls + ',' + tag.attrs['src']
+					else:
+						picUrls = picUrls + ',' + tag.attrs['src']
 			self.htmlQueue.put((url, words, picUrls[1:]))
 		except Exception,e:
 			print e
 			logging.error('HtmlParseError: '+url)
 
 	def findmainbody(self, soup):
-		totLen = len(string.join(soup.find_all(text = True)))
-		for child in soup.contents:
-			if hasattr(child, 'find_all'):
-				length = len(string.join(child.find_all(text = True)))
-				# print (length / totLen)
-				if length / totLen > 0.6:
-					return self.findmainbody(child)
-		return soup
+		try:
+			totLen = len(string.join(soup.find_all(text = True)))
+			for child in soup.contents:
+				if hasattr(child, 'find_all'):
+					length = len(string.join(child.find_all(text = True)))
+					# print (length / totLen)
+					if length / totLen > 0.4:
+						return self.findmainbody(child)
+			return soup
+		except:
+			logging.error('Finding main body failed.')
 
 	def start(self):
 		self.state = True
@@ -129,7 +143,7 @@ class Crawler(object):
 				# self.threadPool.addJob(self.work,url)	#向线程池中添加工作任务
 				self.readUrls.append(url)				#添加已访问的url
 				# 检查是否在数据库中已经存在
-				print 'dealing with ' + url
+				print '>>dealing with ' + url
 				if self.dataBase.check(url):
 					print '--data exists in DB: ' + url
 					if self.currentDepth < self.depth:
@@ -153,21 +167,18 @@ class Crawler(object):
 
 #存储数据库类
 class SaveDataBase(object):
-	def __init__(self, dbfile, test, url):
+	def __init__(self, dbname, url):
 		#移除现有的同名数据库
 		# if os.path.isfile(dbfile):
 		# 	os.remove(dbfile)
-		if test:
-			self.dbname = 'test'
-		else:
-			self.dbname = url.split('/')[-1]
+		self.dbname = dbname
 		print 'dbname: ', self.dbname
 		#数据库创建链接
-		self.conn = sqlite3.connect(dbfile)
+		self.conn = sqlite3.connect('data.sql')
 		#设置支持中文存储
 		self.conn.text_factory = str
 		self.cmd = self.conn.cursor()
-		if test:
+		if self.dbname == 'test':
 			self.cmd.execute('drop table if exists test')
 			self.conn.commit()
 		self.cmd.execute('''
@@ -184,12 +195,11 @@ class SaveDataBase(object):
 	def save(self,htmlQueue):
 		while not htmlQueue.empty():
 			(url, html, picUrls) = htmlQueue.get()
-			
 			try:
 				self.cmd.execute("insert into " + self.dbname + " (url, html, picUrl) values (?, ?, ?)",(url, html, picUrls))
 				self.conn.commit()
 			except Exception,e:
-				logging.warning('SaveDBError: '+e)
+				logging.warning(e)
 
 	#检查链接的结果是否已经存在于数据库
 	def check(self, url):
@@ -224,8 +234,8 @@ class printInfo(Thread):
 #日志配置函数
 def logConfig(logFile,logLevel):
 	#移除现有的同名日志文件
-	if os.path.isfile(logFile):
-		os.remove(logFile)
+	# if os.path.isfile(logFile):
+	# 	os.remove(logFile)
 	#数字越大记录越详细
 	LEVELS = {
 		1:logging.CRITICAL,
@@ -277,9 +287,8 @@ if __name__ == '__main__':
 	optParser.add_option("-d",dest="depth",type="int",help="Specify the crawling depth.")
 	optParser.add_option("-f",dest="logFile",default="spider.log",type="string",help="The log file path, Default: spider.log.")
 	optParser.add_option("-l",dest="logLevel",default="3",type="int",help="The level(1-5) of logging details. Larger number record more details. Default: 3")
-	optParser.add_option("--test", action = "store_true", dest="test", help="test on one url")
 	optParser.add_option("--thread",dest="thread",default="10",type="int",help="The amount of threads. Default: 10.")
-	optParser.add_option("--dbfile",dest="dbfile",default="data.sql",type="string",help="The SQLite file path. Default:data.sql")
+	optParser.add_option("--dbname",dest="dbname",default="test",type="string",help="The SQLite file path. Default:test")
 	optParser.add_option("--key",metavar="key",default="",type="string",help="The keyword for crawling. Default: None.")
 	# optParser.add_option("--testself",action="store_false",dest="testself",help="TestSelf")
 	(options,args) = optParser.parse_args()
@@ -292,7 +301,7 @@ if __name__ == '__main__':
 		print optParser.print_help()
 	else:
 		logConfig(options.logFile,options.logLevel)	#日志配置
-		spider = Crawler(options.url,options.depth,options.thread,options.dbfile,options.key, options.test)	
+		spider = Crawler(options.url,options.depth,options.thread,options.dbname,options.key)	
 		info = printInfo(spider)
 		spider.start()
 		info.printEnd()
