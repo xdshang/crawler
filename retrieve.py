@@ -46,7 +46,7 @@ def RetrieveData(dbname, path):
 					picUrl = url + '/' + picUrl
 			try:		
 				req = urllib2.Request(url = picUrl, headers = headers)
-				urllib2.urlopen(req)
+				urllib2.urlopen(url = req, data = None, timeout = 5)
 				urllib.urlretrieve(picUrl, path + dirname + '/' + picUrl.split('/')[-1])
 				print '--succeed in retrieving ' + picUrl
 			except Exception, e:
@@ -63,8 +63,8 @@ if __name__ == '__main__':
 	if len(sys.argv) < 3:
 		print optParser.print_help()
 	else:
-		if not os.path.exists(options.dbname):
-			os.mkdir(options.dbname)
-		path = options.dbname + '/'
+		if not os.path.exists('db/' + options.dbname):
+			os.mkdir('db/' + options.dbname)
+		path = 'db/' + options.dbname + '/'
 		logging.basicConfig(filename = 'retrieve.log',level = 3)
 		RetrieveData(options.dbname, path)
