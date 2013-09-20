@@ -126,7 +126,7 @@ class Crawler(object):
 				if hasattr(child, 'find_all'):
 					length = len(string.join(child.find_all(text = True)))
 					# print (length / totLen)
-					if length / totLen > 0.4:
+					if length / totLen > 0.5:
 						return self.findmainbody(child)
 			return soup
 		except:

@@ -34,7 +34,7 @@ def RetrieveData(dbname, path):
 		# 获取picUrl相对应的图片并保存
 		picUrls = website[2].split(',')
 		for picUrl in picUrls:
-			if picUrl == '':
+			if picUrl == '' or not (picUrl.endswith('.jpg') or (picUrl.endswith('.jpeg'))):
 				continue
 			# 尝试规范url格式
 			if picUrl.startswith('//'):
@@ -44,11 +44,16 @@ def RetrieveData(dbname, path):
 					picUrl = url + picUrl
 				else:
 					picUrl = url + '/' + picUrl
+			dest_path = path + dirname + '/' + picUrl.split('/')[-1]
 			try:		
 				req = urllib2.Request(url = picUrl, headers = headers)
-				urllib2.urlopen(url = req, data = None, timeout = 5)
-				urllib.urlretrieve(picUrl, path + dirname + '/' + picUrl.split('/')[-1])
+				urllib2.urlopen(url = req, data = None)
+				urllib.urlretrieve(picUrl, dest_path)
 				print '--succeed in retrieving ' + picUrl
+			except KeyboardInterrupt:
+				if os.path.exists(dest_path):
+					os.remove(path + dirname + '/' + picUrl.split('/')[-1])
+				print '>>skip current image.'
 			except Exception, e:
 				logging.error("%s %s", e, picUrl)
 		website = cur.fetchone()
