@@ -68,13 +68,7 @@ class Crawler(object):
 
 		if self.currentDepth < self.depth:
 			try:
-				soup = BeautifulSoup(html)
-				ref_blocks = soup.find_all('ol', attrs = {'class': 'references'})
-				allUrl = []
-				for ref_block in ref_blocks:
-					urls = ref_block.find_all('a', attrs = {'href' : re.compile('^http|^/'), 'rel' : 'nofollow', 'class' : 'external text'})
-					if len(urls) > len(allUrl):
-						allUrl = urls
+				allUrl = findRefBlock(html).find_all('a', attrs = {'href' : re.compile('^http|^/'), 'rel' : 'nofollow', 'class' : 'external text'})
 				if url.endswith('/'):
 					url = url[:-1]
 				for i in allUrl:
@@ -90,13 +84,25 @@ class Crawler(object):
 				logging.warning('No references found: '+url)
 
 		self.htmlfilter(url,html)
+
+	#找到引用链接
+	@staticmethod
+	def findRefBlock(html):
+		soup = BeautifulSoup(html)
+		ref_blocks = soup.find_all('ol', attrs = {'class': 'references'})
+		allUrl = []
+		for ref_block in ref_blocks:
+			urls = ref_block.find_all('a', attrs = {'href' : re.compile('^http|^/'), 'rel' : 'nofollow', 'class' : 'external text'})
+			if len(urls) > len(allUrl):
+				max_ref_block = ref_block
+		return max_ref_block
 				
 	#匹配关键字
 	def htmlfilter(self,url,html):
 		try:
 			soup = BeautifulSoup(html)	
 			[s.extract() for s in soup('script')] 
-			main_body = self.findmainbody(soup)
+			main_body = Crawler.findmainbody(soup)
 			#提取主块中的文字内容
 			if main_body.find_all('p'):
 				words = string.join([ele.get_text() for ele in main_body.find_all('p')])
@@ -119,7 +125,8 @@ class Crawler(object):
 			print e
 			logging.error('HtmlParseError: '+url)
 
-	def findmainbody(self, soup):
+	@staticmethod
+	def findmainbody(soup):
 		try:
 			totLen = len(string.join(soup.find_all(text = True)))
 			for child in soup.contents:
@@ -127,9 +134,10 @@ class Crawler(object):
 					length = len(string.join(child.find_all(text = True)))
 					# print (length / totLen)
 					if length / totLen > 0.5:
-						return self.findmainbody(child)
+						return Crawler.findmainbody(child)
 			return soup
-		except:
+		except Exception,e:
+			print e
 			logging.error('Finding main body failed.')
 
 	def start(self):
