@@ -20,7 +20,7 @@
 
 # python spider.py -u http://en.wikipedia.org/wiki/2013_Eastern_Australia_floods -d 2 --dbname db10
 
-python retrieve.py --dbname db1
+# python retrieve.py --dbname db1
 
 python retrieve.py --dbname db2
 

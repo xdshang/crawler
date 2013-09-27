@@ -42,7 +42,7 @@ def Categorize(dbname, cur, path):
 	if wiki_url.endswith('/'):
 		wiki_url = wiki_url[:-1]
 	ref_block = Crawler.findRefBlock(html)
-	refs = ref_block.find_all('li')
+	refs = ref_block.find_all('li', id = True)
 	for ref in refs:
 		cid = int(ref.attrs['id'].split('-')[-1])
 		ref_tag = ref.find('a', attrs = {'href' : re.compile('^http|^/'), 'rel' : 'nofollow', 'class' : 'external text'})
